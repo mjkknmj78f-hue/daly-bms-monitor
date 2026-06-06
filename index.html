@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Daly BMS Monitor</title>
+  <title>Solar Battery Bank</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#3fb950">
   <meta name="mobile-web-app-capable" content="yes">
@@ -12,234 +12,168 @@
   <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
   <style>
     :root {
-      --bg: #0d1117;
-      --card: #161b22;
-      --border: #30363d;
-      --text: #e6edf3;
-      --muted: #8b949e;
-      --green: #3fb950;
-      --amber: #d29922;
-      --blue: #58a6ff;
-      --red: #f85149;
+      --bg: #0d1117; --card: #161b22; --border: #30363d;
+      --text: #e6edf3; --muted: #8b949e;
+      --green: #3fb950; --amber: #d29922; --blue: #58a6ff; --red: #f85149;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      min-height: 100vh;
-      padding: 16px;
-      max-width: 900px;
-      margin: 0 auto;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
-      padding-bottom: 14px;
-      border-bottom: 1px solid var(--border);
-    }
-    h1 { font-size: 1.15rem; font-weight: 600; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; padding: 14px; max-width: 1000px; margin: 0 auto; }
+
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); gap: 10px; flex-wrap: wrap; }
+    h1 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
     h1 em { color: var(--green); font-style: normal; }
 
-    .status-row { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
-    .status-pill {
-      display: flex; align-items: center; gap: 6px;
-      font-size: 0.72rem; color: var(--muted);
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 99px;
-      padding: 4px 12px;
+    .top-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .ctrl-input {
+      background: var(--card); border: 1px solid var(--border); color: var(--text);
+      padding: 6px 10px; border-radius: 6px; font-size: 0.78rem; font-family: monospace;
     }
-    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-    .dot.on  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .ctrl-input:focus { outline: none; border-color: var(--blue); }
+    .btn {
+      border: none; padding: 7px 14px; border-radius: 6px;
+      font-size: 0.78rem; font-weight: 700; cursor: pointer; white-space: nowrap; transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-green { background: var(--green); color: #000; }
+    .btn-red   { background: var(--red);   color: #fff; }
+    .btn-ghost { background: var(--card); border: 1px solid var(--border); color: var(--text); }
+    .btn-ghost:hover { border-color: var(--blue); color: var(--blue); }
+    .btn-ghost.active { border-color: var(--red); color: var(--red); }
+
+    .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; color: var(--muted); background: var(--card); border: 1px solid var(--border); border-radius: 99px; padding: 3px 10px; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+    .dot.on  { background: var(--green); box-shadow: 0 0 5px var(--green); }
     .dot.err { background: var(--red); }
     .dot.warn { background: var(--amber); }
 
-    /* Connection bar */
-    .conn-bar {
-      display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; align-items: center;
-    }
-    #btn {
-      background: var(--green); color: #000;
-      border: none; padding: 8px 18px;
-      border-radius: 6px; font-size: 0.82rem; font-weight: 700;
-      cursor: pointer; transition: opacity .15s; white-space: nowrap;
-    }
-    #btn:hover { opacity: .85; }
-    #btn:disabled { opacity: .4; cursor: not-allowed; }
-    #btn.disc { background: var(--red); color: #fff; }
+    .status-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 
-    .pack-wrap {
-      display: flex; align-items: center; gap: 6px;
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 6px; padding: 6px 10px; font-size: 0.78rem; color: var(--muted);
-      white-space: nowrap;
-    }
-    .pack-wrap input {
-      width: 36px; background: transparent; border: none;
-      color: var(--text); font-size: 0.82rem; font-weight: 700;
-      text-align: center;
-    }
-    .pack-wrap input:focus { outline: none; }
+    /* Bank summary */
+    #bank { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+    .bank-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+    .bank-stat .lbl { font-size: .62rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+    .bank-stat .val { font-size: 1.4rem; font-weight: 700; }
+    .bank-stat .unit { font-size: .8rem; color: var(--muted); margin-left: 2px; }
+    .bank-stat .sub  { font-size: .68rem; color: var(--muted); margin-top: 3px; }
+    .soc-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+    .soc-fill { height: 100%; border-radius: 2px; transition: width .5s, background .5s; }
+    .bank-title { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; display: flex; justify-content: space-between; }
 
-    .mqtt-input-wrap {
-      display: flex; gap: 6px; flex: 1; min-width: 240px;
-    }
-    .mqtt-input-wrap input {
-      flex: 1;
-      background: var(--card);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 7px 12px;
-      border-radius: 6px;
-      font-size: 0.78rem;
-      font-family: monospace;
-    }
-    .mqtt-input-wrap input:focus { outline: none; border-color: var(--blue); }
-    #mqtt-btn {
-      background: var(--card);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 7px 14px;
-      border-radius: 6px;
-      font-size: 0.78rem;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    #mqtt-btn:hover { border-color: var(--blue); color: var(--blue); }
-    #mqtt-btn.connected { border-color: var(--red); color: var(--red); }
+    /* Pack grid */
+    #packs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-bottom: 12px; }
 
-    .banner {
-      background: rgba(210,153,34,.1);
-      border: 1px solid rgba(210,153,34,.3);
-      color: var(--amber);
-      padding: 10px 14px; border-radius: 8px;
-      font-size: 0.78rem; margin-bottom: 16px;
-    }
+    .pack-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: border-color .2s; }
+    .pack-card.connected { border-color: var(--green); }
+    .pack-card.connecting { border-color: var(--amber); }
+    .pack-card.error { border-color: var(--red); }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; margin-bottom: 10px; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
-    .lbl { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
-    .val { font-size: 1.75rem; font-weight: 700; line-height: 1; }
-    .unit { font-size: .85rem; color: var(--muted); margin-left: 3px; }
-    .sub  { font-size: .72rem; color: var(--muted); margin-top: 6px; }
+    .pack-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .pack-name { font-size: .82rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+    .pack-body { padding: 12px; }
 
-    .soc-bar { height: 5px; background: var(--border); border-radius: 3px; margin-top: 10px; overflow: hidden; }
-    .soc-fill { height: 100%; border-radius: 3px; transition: width .5s, background .5s; width: 0%; background: var(--green); }
+    .pack-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .ps { }
+    .ps .l { font-size: .62rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .ps .v { font-size: 1.1rem; font-weight: 700; }
+    .ps .u { font-size: .72rem; color: var(--muted); }
 
-    .badge { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .badge { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: .62rem; font-weight: 700; text-transform: uppercase; }
     .badge.Charging    { background: rgba(63,185,80,.15);  color: var(--green); }
     .badge.Discharging { background: rgba(88,166,255,.15); color: var(--blue);  }
     .badge.Idle        { background: rgba(139,148,158,.15);color: var(--muted); }
 
-    .fet-row { display: flex; gap: 6px; margin-top: 8px; }
-    .fet { flex: 1; text-align: center; padding: 3px 4px; border-radius: 4px; font-size: .62rem; font-weight: 700; }
-    .fet.on  { background: rgba(63,185,80,.2);  color: var(--green); }
-    .fet.off { background: rgba(248,81,73,.15); color: var(--red);   }
+    .pack-soc-bar { height: 4px; background: var(--border); border-radius: 2px; margin: 8px 0; overflow: hidden; }
+    .pack-soc-fill { height: 100%; border-radius: 2px; transition: width .5s, background .5s; }
 
-    #cells-card { display: none; margin-bottom: 10px; }
-    .cells-wrap { display: grid; grid-template-columns: repeat(auto-fill, minmax(68px,1fr)); gap: 7px; margin-top: 10px; }
-    .cell { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 5px; text-align: center; }
-    .cell-n { font-size: .6rem; color: var(--muted); margin-bottom: 2px; }
-    .cell-v { font-size: .78rem; font-weight: 600; }
-    .cell.hi   { border-color: var(--green); }
-    .cell.lo   { border-color: var(--amber); }
+    .cells-toggle { font-size: .65rem; color: var(--blue); cursor: pointer; background: none; border: none; padding: 0; }
+    .cells-wrap { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 5px; margin-top: 8px; display: none; }
+    .cells-wrap.open { display: grid; }
+    .cell { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 5px 4px; text-align: center; }
+    .cell-n { font-size: .55rem; color: var(--muted); }
+    .cell-v { font-size: .7rem; font-weight: 600; }
+    .cell.hi { border-color: var(--green); }
+    .cell.lo { border-color: var(--amber); }
     .cell.crit { border-color: var(--red); }
 
-    #log { margin-top: 14px; font-size: .7rem; color: var(--muted); font-family: monospace; max-height: 110px; overflow-y: auto; padding: 8px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+    .placeholder-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 120px; color: var(--muted); font-size: .78rem; }
+    .placeholder-card .dot-big { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+
+    #log { margin-top: 10px; font-size: .68rem; color: var(--muted); font-family: monospace; max-height: 90px; overflow-y: auto; padding: 8px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
     #log p { margin-bottom: 1px; }
     #log .err { color: var(--red); }
     #log .ok  { color: var(--green); }
     #log .mqtt { color: var(--blue); }
 
-    .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: var(--muted); font-size: .82rem; border: 1px dashed var(--border); border-radius: 10px; margin-bottom: 10px; }
-    .ts { font-size: .68rem; color: var(--muted); text-align: right; margin-bottom: 10px; }
-
-    @media (max-width: 420px) { .val { font-size: 1.45rem; } }
+    .banner { background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.3); color: var(--amber); padding: 9px 12px; border-radius: 8px; font-size: .76rem; margin-bottom: 12px; }
+    .ts { font-size: .65rem; color: var(--muted); text-align: right; margin-bottom: 4px; }
   </style>
 </head>
 <body>
 
+<div id="browser-banner" class="banner" style="display:none">⚠️ Web Bluetooth requires <strong>Chrome or Edge</strong>. Not supported on iOS Safari.</div>
+
 <header>
-  <h1>⚡ <em>Daly BMS</em> Monitor</h1>
+  <h1>⚡ <em>Solar Battery</em> Bank</h1>
+  <div class="top-controls">
+    <label style="font-size:.72rem;color:var(--muted);display:flex;align-items:center;gap:5px;">
+      Packs
+      <input id="slot-count" class="ctrl-input" type="number" min="1" max="12" value="6" style="width:44px;text-align:center" onchange="rebuildPackSlots()">
+    </label>
+    <input id="mqtt-url" class="ctrl-input" type="text" value="ws://chipflix.local:9001" style="width:210px" placeholder="ws://broker:9001">
+    <button class="btn btn-ghost" id="mqtt-btn" onclick="toggleMqtt()">MQTT</button>
+  </div>
 </header>
 
-<div id="banner" class="banner" style="display:none">
-  ⚠️ Web Bluetooth requires <strong>Chrome or Edge</strong>. Not supported on iOS Safari.
-</div>
-
-<!-- BLE + MQTT connection controls -->
-<div class="conn-bar">
-  <button id="btn" onclick="toggleBle()">Connect BMS</button>
-  <div class="pack-wrap">
-    <span>Packs in parallel:</span>
-    <input id="pack-count" type="number" min="1" max="20" value="6" onchange="savePackCount()">
-  </div>
-  <div class="mqtt-input-wrap">
-    <input id="mqtt-url" type="text" value="ws://chipflix.local:9001" placeholder="ws://chipflix.local:9001" />
-    <button id="mqtt-btn" onclick="toggleMqtt()">MQTT Connect</button>
-  </div>
-</div>
-
-<!-- Status indicators -->
 <div class="status-row">
-  <div class="status-pill"><div class="dot" id="ble-dot"></div><span id="ble-txt">BLE: Not connected</span></div>
-  <div class="status-pill"><div class="dot" id="mqtt-dot"></div><span id="mqtt-txt">MQTT: Not connected</span></div>
+  <div class="pill"><div class="dot" id="mqtt-dot"></div><span id="mqtt-txt">MQTT: off</span></div>
+  <div class="pill" id="bank-pill" style="display:none"><div class="dot on"></div><span id="bank-txt">0 packs connected</span></div>
 </div>
 
-<div id="dash" style="display:none">
-  <div class="ts">Last update: <span id="ts">—</span></div>
-  <div class="grid">
-    <div class="card">
+<!-- Bank aggregate summary -->
+<div id="bank">
+  <div class="bank-title">
+    <span>Bank Total</span>
+    <span class="ts">Updated <span id="bank-ts">—</span></span>
+  </div>
+  <div class="bank-grid">
+    <div class="bank-stat">
       <div class="lbl">Pack Voltage</div>
-      <div class="val" id="v-val">—<span class="unit">V</span></div>
-      <div class="sub" id="v-sub">—</div>
+      <div class="val" id="b-volt">—<span class="unit">V</span></div>
+      <div class="sub" id="b-cells">—</div>
     </div>
-    <div class="card">
-      <div class="lbl">Current</div>
-      <div class="val" id="i-val">—<span class="unit">A</span></div>
-      <div class="sub" id="i-sub">—</div>
+    <div class="bank-stat">
+      <div class="lbl">Total Current</div>
+      <div class="val" id="b-curr">—<span class="unit">A</span></div>
+      <div class="sub" id="b-pwr">—</div>
     </div>
-    <div class="card">
-      <div class="lbl">State of Charge</div>
-      <div class="val" id="soc-val">—<span class="unit">%</span></div>
-      <div class="soc-bar"><div class="soc-fill" id="soc-fill"></div></div>
+    <div class="bank-stat">
+      <div class="lbl">Avg State of Charge</div>
+      <div class="val" id="b-soc">—<span class="unit">%</span></div>
+      <div class="soc-bar"><div class="soc-fill" id="b-soc-fill" style="width:0%;background:var(--green)"></div></div>
     </div>
-    <div class="card">
-      <div class="lbl">Status</div>
-      <div id="state-badge"><span class="badge Idle">—</span></div>
-      <div class="fet-row">
-        <div class="fet off" id="chg-fet">CHG —</div>
-        <div class="fet off" id="dsg-fet">DSG —</div>
-      </div>
-      <div class="sub" id="cycles-sub">—</div>
+    <div class="bank-stat">
+      <div class="lbl">Total Remaining</div>
+      <div class="val" id="b-rem">—<span class="unit">Ah</span></div>
+      <div class="sub" id="b-status">—</div>
     </div>
-    <div class="card">
-      <div class="lbl">Temperature</div>
-      <div class="val" id="t-val">—<span class="unit">°C</span></div>
-      <div class="sub" id="t-sub">—</div>
+    <div class="bank-stat">
+      <div class="lbl">Avg Temperature</div>
+      <div class="val" id="b-temp">—<span class="unit">°C</span></div>
     </div>
-    <div class="card">
-      <div class="lbl">Remaining Capacity</div>
-      <div class="val" id="rem-val">—<span class="unit">Ah</span></div>
-      <div class="sub" id="pack-info">—</div>
+    <div class="bank-stat">
+      <div class="lbl">Total Power</div>
+      <div class="val" id="b-watt">—<span class="unit">W</span></div>
+      <div class="sub" id="b-mode">—</div>
     </div>
-  </div>
-
-  <div class="card" id="cells-card">
-    <div class="lbl">Cell Voltages</div>
-    <div class="cells-wrap" id="cells-wrap"></div>
   </div>
 </div>
 
-<div id="placeholder" class="placeholder">Connect to your Daly BMS to start monitoring</div>
+<div id="packs-grid"></div>
 <div id="log"></div>
 
 <script>
-// ── Daly BMS Protocol ────────────────────────────────────────────
+// ── Daly Protocol ────────────────────────────────────────────────
 const CMD = { SOC: 0x90, CELL_EXT: 0x91, TEMP_EXT: 0x92, MOSFET: 0x93, STATUS: 0x94, CELLS: 0x95 };
 
 function buildCmd(cmd) {
@@ -250,333 +184,395 @@ function buildCmd(cmd) {
   return b;
 }
 
-// ── BLE Service Profiles ─────────────────────────────────────────
 const PROFILES = [
   { svc: '0000fff0-0000-1000-8000-00805f9b34fb', wr: '0000fff2-0000-1000-8000-00805f9b34fb', nx: '0000fff1-0000-1000-8000-00805f9b34fb' },
   { svc: '0000ffe0-0000-1000-8000-00805f9b34fb', wr: '0000ffe1-0000-1000-8000-00805f9b34fb', nx: '0000ffe1-0000-1000-8000-00805f9b34fb' },
 ];
 
-// ── State ────────────────────────────────────────────────────────
-let bleDevice = null, writeCh = null, pollTmr = null;
-let rxBuf = [], pending = {}, cellCount = 0;
-let mqttClient = null, mqttReady = false, discoveryPublished = false;
-let lastPayload = null;
-
-function packCount() { return parseInt($('pack-count').value) || 1; }
-function savePackCount() { localStorage.setItem('packCount', $('pack-count').value); }
-// Restore saved pack count on load
-document.addEventListener('DOMContentLoaded', () => {
-  const saved = localStorage.getItem('packCount');
-  if (saved) $('pack-count').value = saved;
-});
-
 // ── MQTT ─────────────────────────────────────────────────────────
+let mqttClient = null, mqttReady = false;
+
 function toggleMqtt() {
-  if (mqttClient && mqttClient.connected) { mqttDisconnect(); return; }
-  mqttConnect();
-}
-
-function mqttConnect() {
-  const url = $('mqtt-url').value.trim() || 'ws://chipflix.local:9001';
-  log(`MQTT connecting to ${url}…`, 'mqtt');
+  if (mqttClient?.connected) { mqttClient.end(); return; }
+  const url = $('mqtt-url').value.trim();
   setMqttStatus('warn', 'Connecting…');
-
   mqttClient = mqtt.connect(url, { keepalive: 30, reconnectPeriod: 5000 });
-
   mqttClient.on('connect', () => {
     mqttReady = true;
-    setMqttStatus('on', `MQTT: ${url.replace('ws://', '')}`);
-    log('MQTT connected', 'ok');
+    setMqttStatus('on', url.replace('ws://', ''));
     $('mqtt-btn').textContent = 'Disconnect';
-    $('mqtt-btn').classList.add('connected');
-    publishDiscovery();
+    $('mqtt-btn').classList.add('active');
+    log('MQTT connected', 'ok');
+    packs.forEach(p => { if (p.data) p.publishDiscovery(); });
   });
-
-  mqttClient.on('error', e => {
-    setMqttStatus('err', 'MQTT: Error');
-    log(`MQTT error: ${e.message}`, 'err');
-  });
-
+  mqttClient.on('error', e => { setMqttStatus('err', 'Error'); log(`MQTT: ${e.message}`, 'err'); });
   mqttClient.on('close', () => {
     mqttReady = false;
-    discoveryPublished = false;
-    setMqttStatus('', 'MQTT: Not connected');
-    $('mqtt-btn').textContent = 'MQTT Connect';
-    $('mqtt-btn').classList.remove('connected');
+    setMqttStatus('', 'MQTT: off');
+    $('mqtt-btn').textContent = 'MQTT';
+    $('mqtt-btn').classList.remove('active');
   });
 }
 
-function mqttDisconnect() {
-  if (mqttClient) { mqttClient.end(); mqttClient = null; }
-}
-
-function mqttPublish(topic, payload, opts = {}) {
-  if (!mqttReady || !mqttClient) return;
-  mqttClient.publish(topic, typeof payload === 'string' ? payload : JSON.stringify(payload), { retain: true, ...opts });
-}
-
-// HA MQTT Discovery — creates a "Solar BMS" device in HA with all sensors
-function publishDiscovery() {
-  if (discoveryPublished) return;
-  const device = { identifiers: ['daly_solar_bms'], name: 'Solar BMS', model: 'Daly BMS', manufacturer: 'Daly' };
-  const state  = 'daly_bms/state';
-
-  const sensors = [
-    { id: 'voltage',   name: 'Pack Voltage',       tpl: '{{ value_json.voltage }}',    unit: 'V',   cls: 'voltage',     icon: 'mdi:flash' },
-    { id: 'current',   name: 'Current',             tpl: '{{ value_json.current }}',    unit: 'A',   cls: 'current',     icon: 'mdi:current-dc' },
-    { id: 'power',     name: 'Power',               tpl: '{{ value_json.power }}',      unit: 'W',   cls: 'power',       icon: 'mdi:solar-power' },
-    { id: 'soc',       name: 'State of Charge',     tpl: '{{ value_json.soc }}',        unit: '%',   cls: 'battery',     icon: 'mdi:battery-solar' },
-    { id: 'temp_max',  name: 'Temperature (Max)',   tpl: '{{ value_json.temp_max }}',   unit: '°C',  cls: 'temperature', icon: 'mdi:thermometer' },
-    { id: 'temp_min',  name: 'Temperature (Min)',   tpl: '{{ value_json.temp_min }}',   unit: '°C',  cls: 'temperature', icon: 'mdi:thermometer-low' },
-    { id: 'remaining', name: 'Remaining Capacity',  tpl: '{{ value_json.remaining }}',  unit: 'Ah',  cls: null,          icon: 'mdi:battery-charging' },
-    { id: 'cell_max',  name: 'Cell Voltage Max',    tpl: '{{ value_json.cell_max }}',   unit: 'V',   cls: 'voltage',     icon: 'mdi:battery-high' },
-    { id: 'cell_min',  name: 'Cell Voltage Min',    tpl: '{{ value_json.cell_min }}',   unit: 'V',   cls: 'voltage',     icon: 'mdi:battery-low' },
-    { id: 'cycles',    name: 'Charge Cycles',       tpl: '{{ value_json.cycles }}',     unit: null,  cls: null,          icon: 'mdi:counter' },
-    { id: 'bms_state', name: 'BMS State',           tpl: '{{ value_json.bms_state }}',  unit: null,  cls: null,          icon: 'mdi:battery-sync' },
-  ];
-
-  for (const s of sensors) {
-    const cfg = {
-      name: s.name,
-      unique_id: `daly_bms_${s.id}`,
-      state_topic: state,
-      value_template: s.tpl,
-      icon: s.icon,
-      device,
-    };
-    if (s.unit) cfg.unit_of_measurement = s.unit;
-    if (s.cls)  cfg.device_class = s.cls;
-    mqttPublish(`homeassistant/sensor/daly_bms_${s.id}/config`, cfg);
-  }
-
-  discoveryPublished = true;
-  log('HA discovery published — sensors will appear in HA', 'mqtt');
-}
-
-function publishState(data) {
+function mqttPub(topic, payload, retain = true) {
   if (!mqttReady) return;
-  mqttPublish('daly_bms/state', data);
+  mqttClient.publish(topic, typeof payload === 'string' ? payload : JSON.stringify(payload), { retain });
 }
 
-// ── BLE Connect ──────────────────────────────────────────────────
-async function toggleBle() {
-  if (bleDevice) { bleDisconnect(); return; }
-  await bleConnect();
-}
-
-async function bleConnect() {
-  if (!navigator.bluetooth) { $('banner').style.display = 'block'; return; }
-  const btn = $('btn');
-  btn.disabled = true;
-  log('Scanning for BMS…');
-
-  try {
-    bleDevice = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: PROFILES.map(p => p.svc),
-    });
-    bleDevice.addEventListener('gattserverdisconnected', onGattDisc);
-    log(`Found: ${bleDevice.name || 'Unknown'}`);
-
-    const server = await bleDevice.gatt.connect();
-    let profile = null, svc = null;
-    for (const p of PROFILES) {
-      try { svc = await server.getPrimaryService(p.svc); profile = p; break; } catch {}
-    }
-    if (!profile) throw new Error('No Daly BMS service found');
-
-    log(`Service: ${profile.svc.slice(4, 8).toUpperCase()}`, 'ok');
-    const nxCh = await svc.getCharacteristic(profile.nx);
-    writeCh    = await svc.getCharacteristic(profile.wr);
-    nxCh.addEventListener('characteristicvaluechanged', onData);
-    await nxCh.startNotifications();
-
-    setBleSatus('on', 'BLE: Connected');
-    $('dash').style.display = 'block';
-    $('placeholder').style.display = 'none';
-    btn.textContent = 'Disconnect BMS';
-    btn.classList.add('disc');
-
-    await pollAll();
-    pollTmr = setInterval(pollAll, 3000);
-
-  } catch (e) {
-    log(`BLE Error: ${e.message}`, 'err');
-    bleDevice = null; writeCh = null;
-    setBleSatus('err', 'BLE: Failed');
-  }
-  btn.disabled = false;
-}
-
-function bleDisconnect() {
-  clearInterval(pollTmr);
-  if (bleDevice?.gatt?.connected) bleDevice.gatt.disconnect();
-  bleCleanup();
-}
-
-function onGattDisc() {
-  clearInterval(pollTmr);
-  bleCleanup();
-  log('BLE disconnected', 'err');
-}
-
-function bleCleanup() {
-  bleDevice = null; writeCh = null; cellCount = 0;
-  setBleSatus('', 'BLE: Not connected');
-  $('btn').textContent = 'Connect BMS';
-  $('btn').classList.remove('disc');
-  $('btn').disabled = false;
-}
-
-// ── BLE RX ───────────────────────────────────────────────────────
-function onData(e) {
-  rxBuf.push(...new Uint8Array(e.target.value.buffer));
-  processRx();
-}
-
-function processRx() {
-  while (rxBuf.length >= 5) {
-    const i = rxBuf.indexOf(0xA5);
-    if (i === -1) { rxBuf = []; return; }
-    if (i > 0) rxBuf = rxBuf.slice(i);
-    if (rxBuf.length < 4) return;
-
-    const dlen = rxBuf[3], total = dlen + 5;
-    if (rxBuf.length < total) return;
-
-    const pkt = rxBuf.splice(0, total);
-    let sum = 0;
-    for (let j = 0; j < total - 1; j++) sum += pkt[j];
-    if ((sum & 0xFF) !== pkt[total - 1]) continue;
-
-    const cmd = pkt[2], data = pkt.slice(4, 4 + dlen), p = pending[cmd];
-    if (!p) continue;
-
-    if (p.multi) {
-      p.frames.push(data);
-      if (p.frames.length >= p.want) { delete pending[cmd]; p.resolve(p.frames); }
-    } else {
-      delete pending[cmd]; p.resolve(data);
-    }
-  }
-}
-
-function sendCmd(cmd, multi = false, want = 1) {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => { delete pending[cmd]; reject(new Error(`Timeout 0x${cmd.toString(16)}`)); }, multi ? 4000 : 2500);
-    pending[cmd] = { resolve: d => { clearTimeout(t); resolve(d); }, multi, want, frames: [] };
-    writeCh.writeValueWithoutResponse(buildCmd(cmd)).catch(e => { delete pending[cmd]; clearTimeout(t); reject(e); });
-  });
-}
-
-// ── Poll Loop ────────────────────────────────────────────────────
-async function pollAll() {
-  if (!writeCh) return;
-
-  const state = {};
-
-  if (!cellCount) {
-    try { const s = await sendCmd(CMD.STATUS); cellCount = s[0]; $('pack-info').textContent = `${s[0]}S × ${packCount()}P · ${s[1]} temp sensors`; } catch {}
+// ── BMS Pack Class ───────────────────────────────────────────────
+class BMSPack {
+  constructor(id) {
+    this.id = id;
+    this.device = null;
+    this.writeCh = null;
+    this.rxBuf = [];
+    this.pending = {};
+    this.cellCount = 0;
+    this.data = null;
+    this.pollTimer = null;
+    this.discoveryDone = false;
   }
 
-  try {
-    const d = await sendCmd(CMD.SOC);
-    const packs = packCount();
-    state.voltage  = ((d[0] << 8) | d[1]) / 10;
-    state.current  = Math.round(((((d[4] << 8) | d[5]) - 30000) / 10) * packs * 10) / 10;
-    state.soc      = ((d[6] << 8) | d[7]) / 10;
-    state.power    = Math.round(state.voltage * Math.abs(state.current));
-    renderPack(state.voltage, state.current, state.soc);
-  } catch {}
+  get slotId() { return `pack-${this.id}`; }
 
-  try {
-    const d = await sendCmd(CMD.CELL_EXT);
-    state.cell_max = ((d[0] << 8) | d[1]) / 1000;
-    state.cell_min = ((d[3] << 8) | d[4]) / 1000;
-    $('v-sub').textContent = `Min ${state.cell_min.toFixed(3)} V  ·  Max ${state.cell_max.toFixed(3)} V`;
-  } catch {}
+  async connect() {
+    if (!navigator.bluetooth) { $('browser-banner').style.display = 'block'; return; }
+    this.setCardState('connecting');
+    this.setBtnText('Connecting…', true);
+    log(`Pack ${this.id}: scanning…`);
 
-  try {
-    const d = await sendCmd(CMD.TEMP_EXT);
-    state.temp_max = d[0] - 40;
-    state.temp_min = d[2] - 40;
-    $('t-val').innerHTML = `${state.temp_max}<span class="unit">°C</span>`;
-    $('t-sub').textContent = state.temp_max === state.temp_min ? `All sensors: ${state.temp_max}°C` : `Min ${state.temp_min}°C  ·  Max ${state.temp_max}°C`;
-  } catch {}
-
-  try {
-    const d = await sendCmd(CMD.MOSFET);
-    const names = ['Idle', 'Charging', 'Discharging'];
-    state.bms_state = names[d[0]] ?? 'Unknown';
-    state.cycles    = d[3];
-    state.remaining = Math.round((((d[4] << 24) | (d[5] << 16) | (d[6] << 8) | d[7]) / 1000) * packCount() * 10) / 10;
-    renderMosfet(state.bms_state, d[1] === 1, d[2] === 1, state.cycles, state.remaining);
-  } catch {}
-
-  if (cellCount > 0 && cellCount <= 24) {
     try {
-      const frames = await sendCmd(CMD.CELLS, true, Math.ceil(cellCount / 3));
-      renderCells(frames, cellCount);
-    } catch {}
-  }
+      this.device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: PROFILES.map(p => p.svc),
+      });
+      this.device.addEventListener('gattserverdisconnected', () => this.onDisc());
+      log(`Pack ${this.id}: found ${this.device.name || 'unknown'}`);
 
-  $('ts').textContent = new Date().toLocaleTimeString();
+      const server = await this.device.gatt.connect();
+      let profile = null, svc = null;
+      for (const p of PROFILES) {
+        try { svc = await server.getPrimaryService(p.svc); profile = p; break; } catch {}
+      }
+      if (!profile) throw new Error('No Daly service found');
 
-  // Publish to MQTT / HA
-  if (Object.keys(state).length > 0) {
-    lastPayload = state;
-    publishState(state);
-  }
-}
+      const nxCh = await svc.getCharacteristic(profile.nx);
+      this.writeCh = await svc.getCharacteristic(profile.wr);
+      nxCh.addEventListener('characteristicvaluechanged', e => this.onData(e));
+      await nxCh.startNotifications();
 
-// ── Render ───────────────────────────────────────────────────────
-function renderPack(v, a, soc) {
-  $('v-val').innerHTML = `${v.toFixed(1)}<span class="unit">V</span>`;
-  const aEl = $('i-val');
-  aEl.innerHTML = `${a.toFixed(1)}<span class="unit">A</span>`;
-  aEl.style.color = a > 0.5 ? 'var(--green)' : a < -0.5 ? 'var(--blue)' : 'var(--text)';
-  $('i-sub').textContent = `${Math.abs(v * a).toFixed(0)} W`;
-  $('soc-val').innerHTML = `${soc.toFixed(1)}<span class="unit">%</span>`;
-  const fill = $('soc-fill');
-  fill.style.width = `${Math.min(soc, 100)}%`;
-  fill.style.background = soc > 50 ? 'var(--green)' : soc > 20 ? 'var(--amber)' : 'var(--red)';
-}
+      this.setCardState('connected');
+      this.setBtnText('Disconnect', false);
+      log(`Pack ${this.id}: connected`, 'ok');
 
-function renderMosfet(state, chg, dsg, cyc, remAh) {
-  $('state-badge').innerHTML = `<span class="badge ${state}">${state}</span>`;
-  const cEl = $('chg-fet'); cEl.textContent = `CHG ${chg ? 'ON' : 'OFF'}`; cEl.className = `fet ${chg ? 'on' : 'off'}`;
-  const dEl = $('dsg-fet'); dEl.textContent = `DSG ${dsg ? 'ON' : 'OFF'}`; dEl.className = `fet ${dsg ? 'on' : 'off'}`;
-  $('cycles-sub').textContent = `${cyc} charge cycle${cyc !== 1 ? 's' : ''}`;
-  $('rem-val').innerHTML = `${remAh.toFixed(1)}<span class="unit">Ah</span>`;
-}
-
-function renderCells(frames, total) {
-  const voltages = [];
-  for (const f of frames)
-    for (let i = 0; i < 3; i++) { const v = ((f[1+i*2] << 8) | f[2+i*2]) / 1000; if (v > 0) voltages.push(v); }
-  const max = Math.max(...voltages), min = Math.min(...voltages);
-  const wrap = $('cells-wrap');
-  wrap.innerHTML = '';
-  let num = 0;
-  for (const f of frames) {
-    for (let i = 0; i < 3 && num < total; i++, num++) {
-      const v = ((f[1+i*2] << 8) | f[2+i*2]) / 1000;
-      if (v === 0) { num--; continue; }
-      const div = document.createElement('div');
-      div.className = 'cell';
-      if (v >= max - 0.001) div.classList.add('hi');
-      else if (v <= min + 0.001) div.classList.add('lo');
-      if (v < 2.8) div.classList.add('crit');
-      div.innerHTML = `<div class="cell-n">C${num+1}</div><div class="cell-v">${v.toFixed(3)}</div>`;
-      wrap.appendChild(div);
+      await this.poll();
+      this.pollTimer = setInterval(() => this.poll(), 3000);
+    } catch (e) {
+      log(`Pack ${this.id}: ${e.message}`, 'err');
+      this.setCardState('error');
+      this.cleanup(false);
     }
   }
-  $('cells-card').style.display = 'block';
+
+  disconnect() {
+    if (this.device?.gatt?.connected) this.device.gatt.disconnect();
+    this.onDisc();
+  }
+
+  onDisc() {
+    clearInterval(this.pollTimer);
+    this.data = null;
+    this.cleanup(true);
+    log(`Pack ${this.id}: disconnected`, 'err');
+    updateBank();
+  }
+
+  cleanup(resetCard) {
+    this.device = null; this.writeCh = null; this.cellCount = 0; this.discoveryDone = false;
+    if (resetCard) { this.setCardState(''); this.setBtnText('Connect', false); this.renderDisconnected(); }
+  }
+
+  onData(e) {
+    this.rxBuf.push(...new Uint8Array(e.target.value.buffer));
+    this.processRx();
+  }
+
+  processRx() {
+    while (this.rxBuf.length >= 5) {
+      const i = this.rxBuf.indexOf(0xA5);
+      if (i === -1) { this.rxBuf = []; return; }
+      if (i > 0) this.rxBuf = this.rxBuf.slice(i);
+      if (this.rxBuf.length < 4) return;
+      const dlen = this.rxBuf[3], total = dlen + 5;
+      if (this.rxBuf.length < total) return;
+      const pkt = this.rxBuf.splice(0, total);
+      let sum = 0; for (let j = 0; j < total - 1; j++) sum += pkt[j];
+      if ((sum & 0xFF) !== pkt[total - 1]) continue;
+      const cmd = pkt[2], data = pkt.slice(4, 4 + dlen), p = this.pending[cmd];
+      if (!p) continue;
+      if (p.multi) {
+        p.frames.push(data);
+        if (p.frames.length >= p.want) { delete this.pending[cmd]; p.resolve(p.frames); }
+      } else { delete this.pending[cmd]; p.resolve(data); }
+    }
+  }
+
+  sendCmd(cmd, multi = false, want = 1) {
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => { delete this.pending[cmd]; reject(new Error(`timeout`)); }, multi ? 4000 : 2500);
+      this.pending[cmd] = { resolve: d => { clearTimeout(t); resolve(d); }, multi, want, frames: [] };
+      this.writeCh.writeValueWithoutResponse(buildCmd(cmd)).catch(e => { delete this.pending[cmd]; clearTimeout(t); reject(e); });
+    });
+  }
+
+  async poll() {
+    if (!this.writeCh) return;
+    const d = {};
+
+    if (!this.cellCount) {
+      try { const s = await this.sendCmd(CMD.STATUS); this.cellCount = s[0]; d.tempCount = s[1]; } catch {}
+    }
+
+    try {
+      const s = await this.sendCmd(CMD.SOC);
+      d.voltage  = ((s[0] << 8) | s[1]) / 10;
+      d.current  = (((s[4] << 8) | s[5]) - 30000) / 10;
+      d.soc      = ((s[6] << 8) | s[7]) / 10;
+    } catch {}
+
+    try {
+      const s = await this.sendCmd(CMD.CELL_EXT);
+      d.cellMax = ((s[0] << 8) | s[1]) / 1000;
+      d.cellMin = ((s[3] << 8) | s[4]) / 1000;
+    } catch {}
+
+    try {
+      const s = await this.sendCmd(CMD.TEMP_EXT);
+      d.tempMax = s[0] - 40; d.tempMin = s[2] - 40;
+    } catch {}
+
+    try {
+      const s = await this.sendCmd(CMD.MOSFET);
+      const states = ['Idle', 'Charging', 'Discharging'];
+      d.state     = states[s[0]] ?? 'Unknown';
+      d.chgFet    = s[1] === 1; d.dsgFet = s[2] === 1;
+      d.cycles    = s[3];
+      d.remaining = ((s[4] << 24) | (s[5] << 16) | (s[6] << 8) | s[7]) / 1000;
+    } catch {}
+
+    if (this.cellCount > 0 && this.cellCount <= 24) {
+      try {
+        d.cells = await this.sendCmd(CMD.CELLS, true, Math.ceil(this.cellCount / 3));
+      } catch {}
+    }
+
+    d.cellCount = this.cellCount;
+    this.data = d;
+    this.renderData(d);
+    updateBank();
+
+    if (mqttReady) {
+      if (!this.discoveryDone) this.publishDiscovery();
+      this.publishState(d);
+    }
+  }
+
+  publishDiscovery() {
+    const dev = { identifiers: [`solar_pack_${this.id}`], name: `Solar Pack ${this.id}`, model: 'Daly BMS', manufacturer: 'Daly', via_device: 'solar_battery_bank' };
+    const st  = `daly_bms/pack_${this.id}/state`;
+    const sensors = [
+      { id: 'voltage',   name: 'Voltage',      tpl: '{{ value_json.voltage }}',   unit: 'V',  cls: 'voltage',     icon: 'mdi:flash' },
+      { id: 'current',   name: 'Current',       tpl: '{{ value_json.current }}',   unit: 'A',  cls: 'current',     icon: 'mdi:current-dc' },
+      { id: 'soc',       name: 'SOC',           tpl: '{{ value_json.soc }}',       unit: '%',  cls: 'battery',     icon: 'mdi:battery' },
+      { id: 'temp_max',  name: 'Temperature',   tpl: '{{ value_json.tempMax }}',   unit: '°C', cls: 'temperature', icon: 'mdi:thermometer' },
+      { id: 'remaining', name: 'Remaining Ah',  tpl: '{{ value_json.remaining }}', unit: 'Ah', cls: null,          icon: 'mdi:battery-charging' },
+      { id: 'cell_max',  name: 'Cell Max',      tpl: '{{ value_json.cellMax }}',   unit: 'V',  cls: 'voltage',     icon: 'mdi:battery-high' },
+      { id: 'cell_min',  name: 'Cell Min',      tpl: '{{ value_json.cellMin }}',   unit: 'V',  cls: 'voltage',     icon: 'mdi:battery-low' },
+    ];
+    for (const s of sensors) {
+      const cfg = { name: s.name, unique_id: `solar_pack_${this.id}_${s.id}`, state_topic: st, value_template: s.tpl, icon: s.icon, device: dev };
+      if (s.unit) cfg.unit_of_measurement = s.unit;
+      if (s.cls)  cfg.device_class = s.cls;
+      mqttPub(`homeassistant/sensor/solar_pack_${this.id}_${s.id}/config`, cfg);
+    }
+    this.discoveryDone = true;
+    log(`Pack ${this.id}: HA discovery published`, 'mqtt');
+  }
+
+  publishState(d) {
+    mqttPub(`daly_bms/pack_${this.id}/state`, {
+      voltage: d.voltage, current: d.current, soc: d.soc,
+      tempMax: d.tempMax, tempMin: d.tempMin,
+      remaining: d.remaining, cellMax: d.cellMax, cellMin: d.cellMin,
+      state: d.state, cycles: d.cycles,
+    });
+  }
+
+  // ── Render ────────────────────────────────────────────────────
+  renderData(d) {
+    const body = $(`pack-body-${this.id}`);
+    if (!body) return;
+    const socColor = !d.soc ? 'var(--muted)' : d.soc > 50 ? 'var(--green)' : d.soc > 20 ? 'var(--amber)' : 'var(--red)';
+    const currColor = d.current > 0.5 ? 'var(--green)' : d.current < -0.5 ? 'var(--blue)' : 'var(--text)';
+
+    body.innerHTML = `
+      <div class="pack-stats">
+        <div class="ps"><div class="l">Voltage</div><div class="v">${d.voltage?.toFixed(1) ?? '—'}<span class="u"> V</span></div></div>
+        <div class="ps"><div class="l">Current</div><div class="v" style="color:${currColor}">${d.current?.toFixed(1) ?? '—'}<span class="u"> A</span></div></div>
+        <div class="ps"><div class="l">SOC</div><div class="v">${d.soc?.toFixed(1) ?? '—'}<span class="u"> %</span></div></div>
+        <div class="ps"><div class="l">Remaining</div><div class="v">${d.remaining?.toFixed(1) ?? '—'}<span class="u"> Ah</span></div></div>
+        <div class="ps"><div class="l">Temp</div><div class="v">${d.tempMax ?? '—'}<span class="u"> °C</span></div></div>
+        <div class="ps"><div class="l">Status</div><div class="v" style="font-size:.85rem;padding-top:4px"><span class="badge ${d.state ?? 'Idle'}">${d.state ?? '—'}</span></div></div>
+      </div>
+      <div class="pack-soc-bar"><div class="pack-soc-fill" style="width:${Math.min(d.soc ?? 0, 100)}%;background:${socColor}"></div></div>
+      ${d.cellMin && d.cellMax ? `<div style="font-size:.68rem;color:var(--muted);margin-top:4px">Cells: ${d.cellMin?.toFixed(3)} – ${d.cellMax?.toFixed(3)} V</div>` : ''}
+      ${d.cells ? `<button class="cells-toggle" onclick="toggleCells(${this.id})">▶ Cell voltages</button><div class="cells-wrap" id="cells-${this.id}">${this.renderCellsHtml(d.cells, d.cellCount, d.cellMin, d.cellMax)}</div>` : ''}
+    `;
+  }
+
+  renderCellsHtml(frames, total, min, max) {
+    let html = '', num = 0;
+    for (const f of frames) {
+      for (let i = 0; i < 3 && num < total; i++, num++) {
+        const v = ((f[1+i*2] << 8) | f[2+i*2]) / 1000;
+        if (v === 0) { num--; continue; }
+        const cls = v >= max - 0.001 ? 'hi' : v <= min + 0.001 ? 'lo' : v < 2.8 ? 'crit' : '';
+        html += `<div class="cell ${cls}"><div class="cell-n">C${num+1}</div><div class="cell-v">${v.toFixed(3)}</div></div>`;
+      }
+    }
+    return html;
+  }
+
+  renderDisconnected() {
+    const body = $(`pack-body-${this.id}`);
+    if (body) body.innerHTML = `<div class="placeholder-card"><div class="dot-big"></div><span>Not connected</span></div>`;
+  }
+
+  setCardState(cls) {
+    const card = $(`pack-card-${this.id}`);
+    if (card) card.className = `pack-card ${cls}`;
+  }
+
+  setBtnText(txt, disabled) {
+    const btn = $(`pack-btn-${this.id}`);
+    if (!btn) return;
+    btn.textContent = txt;
+    btn.disabled = disabled;
+    btn.className = disabled ? 'btn btn-ghost' : (txt === 'Disconnect' ? 'btn btn-red' : 'btn btn-green');
+  }
+}
+
+// ── Pack Management ──────────────────────────────────────────────
+let packs = [];
+
+function rebuildPackSlots() {
+  const count = parseInt($('slot-count').value) || 6;
+  localStorage.setItem('slotCount', count);
+
+  // Disconnect any packs beyond new count
+  for (let i = count; i < packs.length; i++) {
+    if (packs[i].device) packs[i].disconnect();
+  }
+
+  // Rebuild pack array
+  const existing = packs.slice(0, count);
+  packs = Array.from({ length: count }, (_, i) => existing[i] || new BMSPack(i + 1));
+
+  // Render slots
+  const grid = $('packs-grid');
+  grid.innerHTML = '';
+  packs.forEach(p => grid.appendChild(createPackCard(p)));
+  updateBank();
+}
+
+function createPackCard(p) {
+  const div = document.createElement('div');
+  div.className = 'pack-card';
+  div.id = `pack-card-${p.id}`;
+  div.innerHTML = `
+    <div class="pack-header">
+      <div class="pack-name">
+        <div class="dot" id="pack-dot-${p.id}"></div>
+        Pack ${p.id}
+      </div>
+      <button class="btn btn-green" id="pack-btn-${p.id}" onclick="packAction(${p.id})">Connect</button>
+    </div>
+    <div class="pack-body" id="pack-body-${p.id}">
+      <div class="placeholder-card"><div class="dot-big"></div><span>Not connected</span></div>
+    </div>
+  `;
+  return div;
+}
+
+function packAction(id) {
+  const p = packs[id - 1];
+  if (p.device) p.disconnect(); else p.connect();
+}
+
+function toggleCells(id) {
+  const el = $(`cells-${id}`);
+  if (!el) return;
+  el.classList.toggle('open');
+  const btn = el.previousElementSibling;
+  if (btn) btn.textContent = el.classList.contains('open') ? '▼ Cell voltages' : '▶ Cell voltages';
+}
+
+// ── Bank Aggregate ───────────────────────────────────────────────
+function updateBank() {
+  const connected = packs.filter(p => p.data);
+  const n = connected.length;
+
+  $('bank-txt').textContent = `${n} pack${n !== 1 ? 's' : ''} connected`;
+  $('bank-pill').style.display = n > 0 ? 'flex' : 'none';
+  $('bank').style.display = n > 0 ? 'block' : 'none';
+
+  if (n === 0) return;
+
+  const d = connected.map(p => p.data);
+  const voltage = d.find(x => x.voltage)?.voltage ?? 0;
+  const totalCurrent = d.reduce((s, x) => s + (x.current ?? 0), 0);
+  const avgSoc = d.reduce((s, x) => s + (x.soc ?? 0), 0) / n;
+  const totalRem = d.reduce((s, x) => s + (x.remaining ?? 0), 0);
+  const avgTemp = d.reduce((s, x) => s + (x.tempMax ?? 0), 0) / n;
+  const totalPower = Math.abs(voltage * totalCurrent);
+  const cellMax = Math.max(...d.map(x => x.cellMax ?? 0));
+  const cellMin = Math.min(...d.filter(x => x.cellMin).map(x => x.cellMin));
+  const states = d.map(x => x.state).filter(Boolean);
+  const modeLabel = [...new Set(states)].join(' / ') || '—';
+
+  const currColor = totalCurrent > 0.5 ? 'var(--green)' : totalCurrent < -0.5 ? 'var(--blue)' : 'var(--text)';
+  const socColor = avgSoc > 50 ? 'var(--green)' : avgSoc > 20 ? 'var(--amber)' : 'var(--red)';
+
+  $('b-volt').innerHTML = `${voltage.toFixed(1)}<span class="unit"> V</span>`;
+  $('b-cells').textContent = `Cells: ${cellMin.toFixed(3)} – ${cellMax.toFixed(3)} V`;
+  $('b-curr').innerHTML = `<span style="color:${currColor}">${totalCurrent.toFixed(1)}</span><span class="unit"> A</span>`;
+  $('b-pwr').textContent = `${totalPower.toFixed(0)} W`;
+  $('b-soc').innerHTML = `${avgSoc.toFixed(1)}<span class="unit"> %</span>`;
+  $('b-soc-fill').style.width = `${Math.min(avgSoc, 100)}%`;
+  $('b-soc-fill').style.background = socColor;
+  $('b-rem').innerHTML = `${totalRem.toFixed(1)}<span class="unit"> Ah</span>`;
+  $('b-status').textContent = modeLabel;
+  $('b-temp').innerHTML = `${avgTemp.toFixed(1)}<span class="unit"> °C</span>`;
+  $('b-watt').innerHTML = `${totalPower.toFixed(0)}<span class="unit"> W</span>`;
+  $('b-mode').textContent = modeLabel;
+  $('bank-ts').textContent = new Date().toLocaleTimeString();
+
+  // Publish bank aggregate to MQTT
+  if (mqttReady) {
+    mqttPub('daly_bms/bank/state', {
+      voltage, current: +totalCurrent.toFixed(1), soc: +avgSoc.toFixed(1),
+      remaining: +totalRem.toFixed(1), temp: +avgTemp.toFixed(1),
+      power: +totalPower.toFixed(0), state: modeLabel,
+      packs_connected: n,
+    });
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
-function setBleSatus(cls, txt) { $('ble-dot').className = `dot ${cls}`; $('ble-txt').textContent = txt; }
-function setMqttStatus(cls, txt) { $('mqtt-dot').className = `dot ${cls}`; $('mqtt-txt').textContent = txt; }
+function setMqttStatus(cls, txt) {
+  $('mqtt-dot').className = `dot ${cls}`;
+  $('mqtt-txt').textContent = `MQTT: ${txt}`;
+}
 
 function log(msg, cls = '') {
   const el = $('log');
@@ -585,12 +581,18 @@ function log(msg, cls = '') {
   p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
   el.appendChild(p);
   el.scrollTop = el.scrollHeight;
-  while (el.children.length > 60) el.removeChild(el.firstChild);
+  while (el.children.length > 80) el.removeChild(el.firstChild);
 }
 
 const $ = id => document.getElementById(id);
 
-if (!navigator.bluetooth) $('banner').style.display = 'block';
+// ── Init ─────────────────────────────────────────────────────────
+if (!navigator.bluetooth) $('browser-banner').style.display = 'block';
+
+const savedSlots = localStorage.getItem('slotCount');
+if (savedSlots) $('slot-count').value = savedSlots;
+
+rebuildPackSlots();
 </script>
 </body>
 </html>
