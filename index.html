@@ -71,6 +71,19 @@
     #btn:disabled { opacity: .4; cursor: not-allowed; }
     #btn.disc { background: var(--red); color: #fff; }
 
+    .pack-wrap {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 6px; padding: 6px 10px; font-size: 0.78rem; color: var(--muted);
+      white-space: nowrap;
+    }
+    .pack-wrap input {
+      width: 36px; background: transparent; border: none;
+      color: var(--text); font-size: 0.82rem; font-weight: 700;
+      text-align: center;
+    }
+    .pack-wrap input:focus { outline: none; }
+
     .mqtt-input-wrap {
       display: flex; gap: 6px; flex: 1; min-width: 240px;
     }
@@ -161,6 +174,10 @@
 <!-- BLE + MQTT connection controls -->
 <div class="conn-bar">
   <button id="btn" onclick="toggleBle()">Connect BMS</button>
+  <div class="pack-wrap">
+    <span>Packs in parallel:</span>
+    <input id="pack-count" type="number" min="1" max="20" value="6" onchange="savePackCount()">
+  </div>
   <div class="mqtt-input-wrap">
     <input id="mqtt-url" type="text" value="ws://chipflix.local:9001" placeholder="ws://chipflix.local:9001" />
     <button id="mqtt-btn" onclick="toggleMqtt()">MQTT Connect</button>
@@ -244,6 +261,14 @@ let bleDevice = null, writeCh = null, pollTmr = null;
 let rxBuf = [], pending = {}, cellCount = 0;
 let mqttClient = null, mqttReady = false, discoveryPublished = false;
 let lastPayload = null;
+
+function packCount() { return parseInt($('pack-count').value) || 1; }
+function savePackCount() { localStorage.setItem('packCount', $('pack-count').value); }
+// Restore saved pack count on load
+document.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('packCount');
+  if (saved) $('pack-count').value = saved;
+});
 
 // ── MQTT ─────────────────────────────────────────────────────────
 function toggleMqtt() {
@@ -451,13 +476,14 @@ async function pollAll() {
   const state = {};
 
   if (!cellCount) {
-    try { const s = await sendCmd(CMD.STATUS); cellCount = s[0]; $('pack-info').textContent = `${s[0]} cells · ${s[1]} temp sensors`; } catch {}
+    try { const s = await sendCmd(CMD.STATUS); cellCount = s[0]; $('pack-info').textContent = `${s[0]}S × ${packCount()}P · ${s[1]} temp sensors`; } catch {}
   }
 
   try {
     const d = await sendCmd(CMD.SOC);
+    const packs = packCount();
     state.voltage  = ((d[0] << 8) | d[1]) / 10;
-    state.current  = (((d[4] << 8) | d[5]) - 30000) / 10;
+    state.current  = Math.round(((((d[4] << 8) | d[5]) - 30000) / 10) * packs * 10) / 10;
     state.soc      = ((d[6] << 8) | d[7]) / 10;
     state.power    = Math.round(state.voltage * Math.abs(state.current));
     renderPack(state.voltage, state.current, state.soc);
@@ -483,7 +509,7 @@ async function pollAll() {
     const names = ['Idle', 'Charging', 'Discharging'];
     state.bms_state = names[d[0]] ?? 'Unknown';
     state.cycles    = d[3];
-    state.remaining = ((d[4] << 24) | (d[5] << 16) | (d[6] << 8) | d[7]) / 1000;
+    state.remaining = Math.round((((d[4] << 24) | (d[5] << 16) | (d[6] << 8) | d[7]) / 1000) * packCount() * 10) / 10;
     renderMosfet(state.bms_state, d[1] === 1, d[2] === 1, state.cycles, state.remaining);
   } catch {}
 
