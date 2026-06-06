@@ -69,7 +69,10 @@
     .pack-card.error { border-color: var(--red); }
 
     .pack-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-    .pack-name { font-size: .82rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+    .pack-name { font-size: .82rem; font-weight: 600; display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .pack-name-text { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+    .pack-name-text:hover { color: var(--blue); }
+    .pack-name-input { background: var(--bg); border: 1px solid var(--blue); color: var(--text); border-radius: 4px; padding: 2px 6px; font-size: .82rem; font-weight: 600; width: 130px; outline: none; }
     .pack-body { padding: 12px; }
 
     .pack-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
@@ -235,6 +238,24 @@ class BMSPack {
 
   get slotId() { return `pack-${this.id}`; }
 
+  getName() {
+    const saved = JSON.parse(localStorage.getItem('packNames') || '{}');
+    return saved[this.id] || `Pack ${this.id}`;
+  }
+
+  saveName(name) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const saved = JSON.parse(localStorage.getItem('packNames') || '{}');
+    saved[this.id] = trimmed;
+    localStorage.setItem('packNames', JSON.stringify(saved));
+    const el = $(`pack-name-text-${this.id}`);
+    if (el) el.textContent = trimmed;
+    // Re-publish discovery with new name
+    this.discoveryDone = false;
+    if (mqttReady && this.data) this.publishDiscovery();
+  }
+
   async connect() {
     if (!navigator.bluetooth) { $('browser-banner').style.display = 'block'; return; }
     this.setCardState('connecting');
@@ -247,7 +268,11 @@ class BMSPack {
         optionalServices: PROFILES.map(p => p.svc),
       });
       this.device.addEventListener('gattserverdisconnected', () => this.onDisc());
-      log(`Pack ${this.id}: found ${this.device.name || 'unknown'}`);
+      const bleName = this.device.name || null;
+      log(`Pack ${this.id}: found ${bleName || 'unknown'}`);
+      // Use BLE name as default if user hasn't set a custom name
+      const saved = JSON.parse(localStorage.getItem('packNames') || '{}');
+      if (bleName && !saved[this.id]) this.saveName(bleName);
 
       const server = await this.device.gatt.connect();
       let profile = null, svc = null;
@@ -378,7 +403,7 @@ class BMSPack {
   }
 
   publishDiscovery() {
-    const dev = { identifiers: [`solar_pack_${this.id}`], name: `Solar Pack ${this.id}`, model: 'Daly BMS', manufacturer: 'Daly', via_device: 'solar_battery_bank' };
+    const dev = { identifiers: [`solar_pack_${this.id}`], name: this.getName(), model: 'Daly BMS', manufacturer: 'Daly', via_device: 'solar_battery_bank' };
     const st  = `daly_bms/pack_${this.id}/state`;
     const sensors = [
       { id: 'voltage',   name: 'Voltage',      tpl: '{{ value_json.voltage }}',   unit: 'V',  cls: 'voltage',     icon: 'mdi:flash' },
@@ -493,7 +518,7 @@ function createPackCard(p) {
     <div class="pack-header">
       <div class="pack-name">
         <div class="dot" id="pack-dot-${p.id}"></div>
-        Pack ${p.id}
+        <span class="pack-name-text" id="pack-name-text-${p.id}" onclick="editPackName(${p.id})" title="Click to rename">${p.getName()}</span>
       </div>
       <button class="btn btn-green" id="pack-btn-${p.id}" onclick="packAction(${p.id})">Connect</button>
     </div>
@@ -566,6 +591,31 @@ function updateBank() {
       packs_connected: n,
     });
   }
+}
+
+// ── Pack Name Editing ────────────────────────────────────────────
+function editPackName(id) {
+  const span = $(`pack-name-text-${id}`);
+  if (!span || span.querySelector('input')) return;
+  const current = span.textContent;
+  span.innerHTML = '';
+  const input = document.createElement('input');
+  input.className = 'pack-name-input';
+  input.value = current;
+  span.appendChild(input);
+  input.focus();
+  input.select();
+
+  const commit = () => {
+    const pack = packs[id - 1];
+    if (pack) pack.saveName(input.value || current);
+    else span.textContent = current;
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.value = current; input.blur(); }
+  });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
